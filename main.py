@@ -7,7 +7,7 @@ import requests
 app = FastAPI()
 # Database setup
 DATABASE_URL = "postgresql://postgres:AvFPPvjpjuhyhzAJzQbprUCXyFQsAVRo@shinkansen.proxy.rlwy.net:36120/railway"
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL)  # Using PostgreSQL instead of SQLite
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -296,10 +296,9 @@ html = """
     };
 
     ws.onerror = function(event) {
-    console.error("WebSocket connection failed", event);
-    alert("WebSocket connection failed. Please check the server or your network.");
-};
-
+        console.error("WebSocket connection failed", event);
+        window.location.href = "https://loopchat.vercel.app";  // Redirect to external site
+    };
 
     ws.onclose = function(event) {
         if (event.code === 4000) {
