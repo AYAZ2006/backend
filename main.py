@@ -110,31 +110,34 @@ html = """
     <title>WebSocket Chat</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        /* Container for the chat window */
-        .chat-container {
+                .chat-container {
             display: flex;
             flex-direction: column;
             height: 100vh;
+            background-color: #f0f0f0; /* Light background for the whole container */
         }
 
         .chat-header {
-            background-color: #f0f0f0;
-            padding: 10px;
+            background-color: #007bff;
+            padding: 15px;
             text-align: center;
+            color: white;
+            font-size: 24px;
         }
 
-        /* Messages display area */
         #messages {
             flex-grow: 1;
             overflow-y: auto;
-            padding: 10px;
+            padding: 15px;
             margin-bottom: 20px;
             list-style: none;
-            background-color: #f8f8f8;
+            background-color: #e9ecef;  /* Light background for messages */
             height: 75vh;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
 
-        /* Style for individual messages */
         .message {
             display: flex;
             padding: 5px;
@@ -142,28 +145,31 @@ html = """
         }
 
         .sender {
-            background-color: lightblue;
-            padding: 10px;
+            background-color: #cce5ff;
+            padding: 12px;
             margin-left: auto;
             border-radius: 10px;
-            max-width: 60%;
+            max-width: 65%;
             word-wrap: break-word;
+            text-align: right;
         }
 
         .receiver {
-            background-color: white;
-            padding: 10px;
+            background-color: #ffffff;
+            padding: 12px;
             margin-right: auto;
             border-radius: 10px;
-            max-width: 60%;
+            max-width: 65%;
             word-wrap: break-word;
+            text-align: left;
         }
 
-        /* Bottom input and button */
         .input-area {
             display: flex;
             justify-content: space-between;
             padding: 10px;
+            background-color: #f8f9fa;
+            border-top: 1px solid #ccc;
         }
 
         #messageText {
@@ -175,7 +181,7 @@ html = """
 
         .send-button {
             width: 12%;
-            background-color: #007bff;
+            background-color: #28a745;
             color: white;
             padding: 10px;
             border: none;
@@ -184,18 +190,24 @@ html = """
         }
 
         .send-button:hover {
-            background-color: #0056b3;
+            background-color: #218838;
         }
 
-        /* Username div */
         .username {
             text-align: right;
-            background-color: lightblue;
-            padding: 5px;
+            background-color: #cce5ff;
+            padding: 8px;
             font-weight: bold;
-            margin-top: 10px;
+            margin-top: 15px;
             border-radius: 5px;
-            margin-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .message-time {
+            font-size: 0.75em;
+            color: #6c757d;
+            text-align: right;
+            margin-top: 5px;
         }
     </style>
 </head>
@@ -219,89 +231,95 @@ html = """
     </div>
 
     <script>
-        let username = prompt("Enter your username:");
-        let receiver = prompt("Enter the username of the person you want to chat with:");
-        document.getElementById("chat-with").textContent = receiver;
-        document.getElementById("username-container").textContent = "Sender: " + username;
+    let username = prompt("Enter your username:");
+    let receiver = prompt("Enter the username of the person you want to chat with:");
+    document.getElementById("chat-with").textContent = receiver;
+    document.getElementById("username-container").textContent = "Sender: " + username;
 
-        async function loadMessages() {
-            const response = await fetch(`/messages/${username}/${receiver}`);
-            const messages = await response.json();
-            const messagesList = document.getElementById("messages");
-            messagesList.innerHTML = "";
+    // Function to load chat history from the backend
+    async function loadMessages() {
+        const response = await fetch(`/messages/${username}/${receiver}`);
+        const messages = await response.json();
+        const messagesList = document.getElementById("messages");
+        messagesList.innerHTML = ""; // Clear existing messages
 
-            messages.forEach(msg => {
-                const messageElement = document.createElement("li");
-                messageElement.classList.add("message");
-
-                if (msg.sender === username) {
-                    const senderDiv = document.createElement("div");
-                    senderDiv.classList.add("sender");
-                    senderDiv.textContent = msg.message;
-                    messageElement.appendChild(senderDiv);
-                } else {
-                    const receiverDiv = document.createElement("div");
-                    receiverDiv.classList.add("receiver");
-                    receiverDiv.textContent = msg.message;
-                    messageElement.appendChild(receiverDiv);
-                }
-
-                messagesList.appendChild(messageElement);
-            });
-        }
-
-        var ws = new WebSocket(`ws://localhost:8000/ws/${username}/${receiver}`);
-        
-        ws.onmessage = function(event) {
-            var messages = document.getElementById('messages');
-            var messageElement = document.createElement('li');
+        messages.forEach(msg => {
+            const messageElement = document.createElement("li");
             messageElement.classList.add("message");
 
-            // Display message from the sender or receiver based on who sent it
-            if (event.data.includes(username)) {
+            // Display sender's message on the right, receiver's message on the left
+            if (msg.sender === username) {
                 const senderDiv = document.createElement("div");
                 senderDiv.classList.add("sender");
-                senderDiv.textContent = event.data;
+                senderDiv.textContent = msg.message;
                 messageElement.appendChild(senderDiv);
             } else {
                 const receiverDiv = document.createElement("div");
                 receiverDiv.classList.add("receiver");
-                receiverDiv.textContent = event.data;
+                receiverDiv.textContent = msg.message;
                 messageElement.appendChild(receiverDiv);
             }
 
-            messages.appendChild(messageElement);
-            messages.scrollTop = messages.scrollHeight;  // Scroll to the latest message
-        };
+            messagesList.appendChild(messageElement);
+        });
 
-        ws.onopen = function() {
-            console.log("WebSocket connected!");
-            loadMessages();  // Load previous messages after WebSocket connects
-        };
+        // Scroll to the bottom of the message list to show the latest message
+        messagesList.scrollTop = messagesList.scrollHeight;
+    }
 
-        ws.onerror = function(event) {
-            // If there's a WebSocket error (connection failure), redirect to loopchat.vercel.app
-            console.error("WebSocket connection failed", event);
-            window.location.href = "https://loopchat.vercel.app";  // Redirect to external site
-        };
+    // WebSocket connection
+    var ws = new WebSocket(`ws://localhost:8000/ws/${username}/${receiver}`);
 
-        ws.onclose = function(event) {
-            if (event.code === 4000) {
-                alert("Receiver not accepted.");
-            }
-        };
+    ws.onmessage = function(event) {
+        var messages = document.getElementById('messages');
+        var messageElement = document.createElement('li');
+        messageElement.classList.add("message");
 
-        function sendMessage(event) {
-            var input = document.getElementById("messageText");
-            if (input.value.trim() !== "") {
-                ws.send(input.value);
-                input.value = '';
-            }
-            event.preventDefault();
+        // Display message from the sender or receiver based on who sent it
+        if (event.data.includes(username)) {
+            const senderDiv = document.createElement("div");
+            senderDiv.classList.add("sender");
+            senderDiv.textContent = event.data;
+            messageElement.appendChild(senderDiv);
+        } else {
+            const receiverDiv = document.createElement("div");
+            receiverDiv.classList.add("receiver");
+            receiverDiv.textContent = event.data;
+            messageElement.appendChild(receiverDiv);
         }
 
-        loadMessages();  // Load messages on page load
-    </script>
+        messages.appendChild(messageElement);
+        messages.scrollTop = messages.scrollHeight;  // Scroll to the latest message
+    };
+
+    ws.onopen = function() {
+        console.log("WebSocket connected!");
+        loadMessages();  // Load previous messages after WebSocket connects
+    };
+
+    ws.onerror = function(event) {
+        console.error("WebSocket connection failed", event);
+        window.location.href = "https://loopchat.vercel.app";  // Redirect to external site
+    };
+
+    ws.onclose = function(event) {
+        if (event.code === 4000) {
+            alert("Receiver not accepted.");
+        }
+    };
+
+    function sendMessage(event) {
+        var input = document.getElementById("messageText");
+        if (input.value.trim() !== "") {
+            ws.send(input.value);
+            input.value = '';  // Clear the input field
+        }
+        event.preventDefault();
+    }
+
+    loadMessages();  // Load messages on page load
+</script>
+
 </body>
 </html>
 """
