@@ -1,9 +1,8 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import HTMLResponse
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-import json
 
 app = FastAPI()
 
@@ -16,7 +15,6 @@ Base = declarative_base()
 # Message Model
 class Message(Base):
     __tablename__ = "messages"
-
     id = Column(Integer, primary_key=True, index=True)
     sender = Column(String, index=True)
     receiver = Column(String, index=True)
@@ -35,11 +33,11 @@ def get_db():
 # WebSocket Connection Manager
 class ConnectionManager:
     def __init__(self):
-        self.active_connections = {}  # Dictionary to store active chats
+        self.active_connections = {}
 
     async def connect(self, websocket: WebSocket, sender: str, receiver: str):
         await websocket.accept()
-        chat_key = frozenset([sender, receiver])  # Unique key for the chat
+        chat_key = frozenset([sender, receiver])
         if chat_key not in self.active_connections:
             self.active_connections[chat_key] = []
         self.active_connections[chat_key].append(websocket)
@@ -47,7 +45,7 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket, sender: str, receiver: str):
         chat_key = frozenset([sender, receiver])
         self.active_connections[chat_key].remove(websocket)
-        if not self.active_connections[chat_key]:  # Remove chat if no active connections
+        if not self.active_connections[chat_key]:
             del self.active_connections[chat_key]
 
     async def broadcast(self, sender: str, receiver: str, message: str):
@@ -85,7 +83,7 @@ async def get_chat_history(sender: str, receiver: str, db: Session = Depends(get
         ((Message.sender == sender) & (Message.receiver == receiver)) |
         ((Message.sender == receiver) & (Message.receiver == sender))
     ).all()
-    
+
     return [{"sender": msg.sender, "message": msg.message} for msg in messages]
 
 # HTML page with JavaScript WebSocket chat client
@@ -96,59 +94,87 @@ html = """
     <title>WebSocket Chat</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
-<body>
+<body style="background-color: gray;">
     <div class="container mt-3">
         <h1>FastAPI WebSocket Chat</h1>
         <h2>Chat with: <span id="chat-with"></span></h2>
-        <form onsubmit="sendMessage(event)">
-            <input type="text" class="form-control" id="messageText" autocomplete="off"/>
-            <button class="btn btn-outline-primary mt-2">Send</button>
+        <form onsubmit="sendMessage(event)" class="d-flex mt-3" style="position: fixed;">
+            <input type="text" class="form-control flex-grow-1" id="messageText" autocomplete="off" placeholder="Type a message..." style="margin-top: 550px; width: 900px; margin-left: -20px;">
+            <button class="btn btn-outline-primary ms-2" style="margin-top: 550px;">Send</button>
         </form>
-        <ul id="messages" class="mt-5"></ul>
+        <ul id="messages" class="mt-5" style="scrollbar-width: none; overflow: hidden;"></ul>
     </div>
 
     <script>
-        let username = prompt("Enter your username:");
-        let receiver = prompt("Enter the username of the person you want to chat with:");
-        document.getElementById("chat-with").textContent = receiver;
-
-        async function loadMessages() {
-            const response = await fetch(`/messages/${username}/${receiver}`);
-            const messages = await response.json();
-            const messagesList = document.getElementById("messages");
-            messagesList.innerHTML = "";
-
-            messages.forEach(msg => {
-                const messageElement = document.createElement("li");
-                messageElement.textContent = msg.sender + ": " + msg.message;
-                messagesList.appendChild(messageElement);
-            });
-        }
-
-        var ws = new WebSocket(`ws://localhost:8000/ws/${username}/${receiver}`);
-        
-        ws.onmessage = function(event) {
-            var messages = document.getElementById('messages');
-            var message = document.createElement('li');
-            message.textContent = event.data;
-            messages.appendChild(message);
-        };
-
-        ws.onopen = function() {
-            console.log("WebSocket connected!");
-            loadMessages();  // Load previous messages after WebSocket connects
-        };
-
-        function sendMessage(event) {
-            var input = document.getElementById("messageText");
-            if (input.value.trim() !== "") {
-                ws.send(input.value);
-                input.value = '';
+        // Fetch username from backend (as per Code 2)
+        async function fetchUsername() {
+            try {
+                const response = await fetch('https://loopchat-backend.vercel.app/api/accounts/want/');
+                const data = await response.json();
+                if (data.username) {
+                    return data.username;  // Return the username from the response
+                } else {
+                    alert("Username not found!");
+                    return null;
+                }
+            } catch (error) {
+                console.error("Error fetching username:", error);
+                return null;
             }
-            event.preventDefault();
         }
 
-        loadMessages();  // Load messages on page load
+        async function setupChat() {
+            const username = await fetchUsername();  // Get username from backend
+            if (!username) return;  // If no username, stop setup
+
+            const receiver = prompt("Enter the username of the person you want to chat with:");
+            document.getElementById("chat-with").textContent = receiver;
+
+            // Load previous messages
+            async function loadMessages() {
+                const response = await fetch(`/messages/${username}/${receiver}`);
+                const messages = await response.json();
+                const messagesList = document.getElementById("messages");
+                messagesList.innerHTML = "";
+
+                messages.forEach(msg => {
+                    const messageElement = document.createElement("li");
+                    messageElement.textContent = msg.sender + ": " + msg.message;
+                    messagesList.appendChild(messageElement);
+                });
+            }
+
+            // WebSocket connection
+            const ws = new WebSocket(`ws://localhost:8000/ws/${username}/${receiver}`);
+
+            ws.onmessage = function(event) {
+                const messages = document.getElementById('messages');
+                const message = document.createElement('li');
+                message.textContent = event.data;
+                messages.appendChild(message);
+            };
+
+            ws.onopen = function() {
+                console.log("WebSocket connected!");
+                loadMessages();  // Load previous messages after WebSocket connects
+            };
+
+            // Send messages
+            function sendMessage(event) {
+                const input = document.getElementById("messageText");
+                if (input.value.trim() !== "") {
+                    ws.send(input.value);
+                    input.value = '';  // Clear input field after sending the message
+                }
+                event.preventDefault();  // Prevent form submission
+            }
+
+            // Initial load of messages on page load
+            loadMessages();
+        }
+
+        // Set up the chat on page load
+        setupChat();  // Initialize chat setup after username fetch
     </script>
 </body>
 </html>
