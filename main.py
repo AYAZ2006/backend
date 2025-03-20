@@ -4,12 +4,10 @@ from sqlalchemy import create_engine, Column, Integer, String, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 import requests
-
 app = FastAPI()
-
 # Database setup
-DATABASE_URL = "sqlite:///./chat.db"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+DATABASE_URL = "postgresql://postgres:AvFPPvjpjuhyhzAJzQbprUCXyFQsAVRo@shinkansen.proxy.rlwy.net:36120/railway"
+engine = create_engine(DATABASE_URL)  # Using PostgreSQL instead of SQLite
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -110,11 +108,11 @@ html = """
     <title>WebSocket Chat</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-                .chat-container {
+        .chat-container {
             display: flex;
             flex-direction: column;
             height: 100vh;
-            background-color: #f0f0f0; /* Light background for the whole container */
+            background-color: #f0f0f0;
         }
 
         .chat-header {
@@ -131,7 +129,7 @@ html = """
             padding: 15px;
             margin-bottom: 20px;
             list-style: none;
-            background-color: #e9ecef;  /* Light background for messages */
+            background-color: #e9ecef;
             height: 75vh;
             display: flex;
             flex-direction: column;
@@ -319,8 +317,6 @@ html = """
 
     loadMessages();  // Load messages on page load
 </script>
-
 </body>
 </html>
 """
-
