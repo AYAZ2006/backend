@@ -1,8 +1,9 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import HTMLResponse
-from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+import requests
 
 app = FastAPI()
 
@@ -15,6 +16,7 @@ Base = declarative_base()
 # Message Model
 class Message(Base):
     __tablename__ = "messages"
+
     id = Column(Integer, primary_key=True, index=True)
     sender = Column(String, index=True)
     receiver = Column(String, index=True)
@@ -30,14 +32,22 @@ def get_db():
     finally:
         db.close()
 
+# Function to check if receiver is in the accepted list
+def is_receiver_accepted(receiver: str) -> bool:
+    url = f"https://loopchat-backend.vercel.app/api/accounts/accepted/{receiver}/"
+    response = requests.get(url)
+    if response.status_code == 200:
+        return True  # Receiver is accepted
+    return False  # Receiver is not accepted
+
 # WebSocket Connection Manager
 class ConnectionManager:
     def __init__(self):
-        self.active_connections = {}
+        self.active_connections = {}  # Dictionary to store active chats
 
     async def connect(self, websocket: WebSocket, sender: str, receiver: str):
         await websocket.accept()
-        chat_key = frozenset([sender, receiver])
+        chat_key = frozenset([sender, receiver])  # Unique key for the chat
         if chat_key not in self.active_connections:
             self.active_connections[chat_key] = []
         self.active_connections[chat_key].append(websocket)
@@ -45,7 +55,7 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket, sender: str, receiver: str):
         chat_key = frozenset([sender, receiver])
         self.active_connections[chat_key].remove(websocket)
-        if not self.active_connections[chat_key]:
+        if not self.active_connections[chat_key]:  # Remove chat if no active connections
             del self.active_connections[chat_key]
 
     async def broadcast(self, sender: str, receiver: str, message: str):
@@ -61,9 +71,15 @@ manager = ConnectionManager()
 async def get():
     return HTMLResponse(html)
 
-# WebSocket endpoint for handling chat
+# WebSocket endpoint for handling chat with receiver validation
 @app.websocket("/ws/{sender}/{receiver}")
 async def websocket_endpoint(websocket: WebSocket, sender: str, receiver: str, db: Session = Depends(get_db)):
+    # Check if receiver is accepted
+    if not is_receiver_accepted(receiver):
+        await websocket.close(code=4000)  # Close the connection if receiver is not valid
+        return
+
+    # Proceed with WebSocket connection if receiver is valid
     await manager.connect(websocket, sender, receiver)
     try:
         while True:
@@ -83,7 +99,7 @@ async def get_chat_history(sender: str, receiver: str, db: Session = Depends(get
         ((Message.sender == sender) & (Message.receiver == receiver)) |
         ((Message.sender == receiver) & (Message.receiver == sender))
     ).all()
-
+    
     return [{"sender": msg.sender, "message": msg.message} for msg in messages]
 
 # HTML page with JavaScript WebSocket chat client
@@ -93,89 +109,200 @@ html = """
 <head>
     <title>WebSocket Chat</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* Container for the chat window */
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .chat-header {
+            background-color: #f0f0f0;
+            padding: 10px;
+            text-align: center;
+        }
+
+        /* Messages display area */
+        #messages {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 10px;
+            margin-bottom: 20px;
+            list-style: none;
+            background-color: #f8f8f8;
+            height: 75vh;
+        }
+
+        /* Style for individual messages */
+        .message {
+            display: flex;
+            padding: 5px;
+            margin: 5px 0;
+        }
+
+        .sender {
+            background-color: lightblue;
+            padding: 10px;
+            margin-left: auto;
+            border-radius: 10px;
+            max-width: 60%;
+            word-wrap: break-word;
+        }
+
+        .receiver {
+            background-color: white;
+            padding: 10px;
+            margin-right: auto;
+            border-radius: 10px;
+            max-width: 60%;
+            word-wrap: break-word;
+        }
+
+        /* Bottom input and button */
+        .input-area {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+        }
+
+        #messageText {
+            width: 85%;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+
+        .send-button {
+            width: 12%;
+            background-color: #007bff;
+            color: white;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .send-button:hover {
+            background-color: #0056b3;
+        }
+
+        /* Username div */
+        .username {
+            text-align: right;
+            background-color: lightblue;
+            padding: 5px;
+            font-weight: bold;
+            margin-top: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+    </style>
 </head>
-<body style="background-color: gray;">
-    <div class="container mt-3">
-        <h1>FastAPI WebSocket Chat</h1>
-        <h2>Chat with: <span id="chat-with"></span></h2>
-        <form onsubmit="sendMessage(event)" class="d-flex mt-3" style="position: fixed;">
-            <input type="text" class="form-control flex-grow-1" id="messageText" autocomplete="off" placeholder="Type a message..." style="margin-top: 550px; width: 900px; margin-left: -20px;">
-            <button class="btn btn-outline-primary ms-2" style="margin-top: 550px;">Send</button>
-        </form>
-        <ul id="messages" class="mt-5" style="scrollbar-width: none; overflow: hidden;"></ul>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>FastAPI WebSocket Chat</h1>
+            <h2>Chat with: <span id="chat-with"></span></h2>
+        </div>
+
+        <ul id="messages">
+            <!-- Messages will be added dynamically -->
+        </ul>
+
+        <div class="input-area">
+            <input type="text" class="form-control" id="messageText" autocomplete="off"/>
+            <button class="send-button" onclick="sendMessage(event)">Send</button>
+        </div>
+
+        <div class="username" id="username-container"></div>
     </div>
 
     <script>
-        // Fetch username from backend (as per Code 2)
-        async function fetchUsername() {
-            try {
-                const response = await fetch('https://loopchat-backend.vercel.app/api/accounts/want/');
-                const data = await response.json();
-                if (data.username) {
-                    return data.username;  // Return the username from the response
+        let username = prompt("Enter your username:");
+        let receiver = prompt("Enter the username of the person you want to chat with:");
+        document.getElementById("chat-with").textContent = receiver;
+        document.getElementById("username-container").textContent = "Sender: " + username;
+
+        async function loadMessages() {
+            const response = await fetch(`/messages/${username}/${receiver}`);
+            const messages = await response.json();
+            const messagesList = document.getElementById("messages");
+            messagesList.innerHTML = "";
+
+            messages.forEach(msg => {
+                const messageElement = document.createElement("li");
+                messageElement.classList.add("message");
+
+                if (msg.sender === username) {
+                    const senderDiv = document.createElement("div");
+                    senderDiv.classList.add("sender");
+                    senderDiv.textContent = msg.message;
+                    messageElement.appendChild(senderDiv);
                 } else {
-                    alert("Username not found!");
-                    return null;
+                    const receiverDiv = document.createElement("div");
+                    receiverDiv.classList.add("receiver");
+                    receiverDiv.textContent = msg.message;
+                    messageElement.appendChild(receiverDiv);
                 }
-            } catch (error) {
-                console.error("Error fetching username:", error);
-                return null;
-            }
+
+                messagesList.appendChild(messageElement);
+            });
         }
 
-        async function setupChat() {
-            const username = await fetchUsername();  // Get username from backend
-            if (!username) return;  // If no username, stop setup
+        var ws = new WebSocket(`ws://localhost:8000/ws/${username}/${receiver}`);
+        
+        ws.onmessage = function(event) {
+            var messages = document.getElementById('messages');
+            var messageElement = document.createElement('li');
+            messageElement.classList.add("message");
 
-            const receiver = prompt("Enter the username of the person you want to chat with:");
-            document.getElementById("chat-with").textContent = receiver;
-
-            // Load previous messages
-            async function loadMessages() {
-                const response = await fetch(`/messages/${username}/${receiver}`);
-                const messages = await response.json();
-                const messagesList = document.getElementById("messages");
-                messagesList.innerHTML = "";
-
-                messages.forEach(msg => {
-                    const messageElement = document.createElement("li");
-                    messageElement.textContent = msg.sender + ": " + msg.message;
-                    messagesList.appendChild(messageElement);
-                });
+            // Display message from the sender or receiver based on who sent it
+            if (event.data.includes(username)) {
+                const senderDiv = document.createElement("div");
+                senderDiv.classList.add("sender");
+                senderDiv.textContent = event.data;
+                messageElement.appendChild(senderDiv);
+            } else {
+                const receiverDiv = document.createElement("div");
+                receiverDiv.classList.add("receiver");
+                receiverDiv.textContent = event.data;
+                messageElement.appendChild(receiverDiv);
             }
 
-            // WebSocket connection
-            const ws = new WebSocket(`ws://localhost:8000/ws/${username}/${receiver}`);
+            messages.appendChild(messageElement);
+            messages.scrollTop = messages.scrollHeight;  // Scroll to the latest message
+        };
 
-            ws.onmessage = function(event) {
-                const messages = document.getElementById('messages');
-                const message = document.createElement('li');
-                message.textContent = event.data;
-                messages.appendChild(message);
-            };
+        ws.onopen = function() {
+            console.log("WebSocket connected!");
+            loadMessages();  // Load previous messages after WebSocket connects
+        };
 
-            ws.onopen = function() {
-                console.log("WebSocket connected!");
-                loadMessages();  // Load previous messages after WebSocket connects
-            };
+        ws.onerror = function(event) {
+            // If there's a WebSocket error (connection failure), redirect to loopchat.vercel.app
+            console.error("WebSocket connection failed", event);
+            window.location.href = "https://loopchat.vercel.app";  // Redirect to external site
+        };
 
-            // Send messages
-            function sendMessage(event) {
-                const input = document.getElementById("messageText");
-                if (input.value.trim() !== "") {
-                    ws.send(input.value);
-                    input.value = '';  // Clear input field after sending the message
-                }
-                event.preventDefault();  // Prevent form submission
+        ws.onclose = function(event) {
+            if (event.code === 4000) {
+                alert("Receiver not accepted.");
             }
+        };
 
-            // Initial load of messages on page load
-            loadMessages();
+        function sendMessage(event) {
+            var input = document.getElementById("messageText");
+            if (input.value.trim() !== "") {
+                ws.send(input.value);
+                input.value = '';
+            }
+            event.preventDefault();
         }
 
-        // Set up the chat on page load
-        setupChat();  // Initialize chat setup after username fetch
+        loadMessages();  // Load messages on page load
     </script>
 </body>
 </html>
 """
+
