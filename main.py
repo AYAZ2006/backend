@@ -192,7 +192,7 @@ html = """
         messagesList.scrollTop = messagesList.scrollHeight;
     }
 
-    var ws = new WebSocket(`wss://backend-c5n6.onrender.com//ws/${username}/${receiver}`);
+    var ws = new WebSocket(`wss://backend-c5n6.onrender.com/ws/${username}/${receiver}`);
 
     ws.onmessage = function(event) {
         var messages = document.getElementById('messages');
